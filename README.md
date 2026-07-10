@@ -50,6 +50,16 @@ python3 adsb_tui.py rtlsdr
 The RTL-SDR profile tunes to 1090 MHz, samples at 2 MS/s, and sets the tuner
 gain to 40 dB.
 
+## Keyboard controls
+
+- `m`: show or hide the map
+- `l`: show or hide the aircraft list
+- `j`/`k` or arrow keys: scroll the aircraft list
+- `q`: quit
+
+When only the map or the aircraft list is visible, it uses the available
+terminal space.
+
 ## Receiver position and map
 
 Set the receiver position with `--receiver-lat` and `--receiver-lon`:

@@ -19,8 +19,10 @@ from .constants import DEFAULT_MAP_ZOOM
 from .tracking import AircraftState, AircraftTracker
 
 class ScrollController:
-    def __init__(self) -> None:
+    def __init__(self, *, map_visible: bool = True) -> None:
         self.offset = 0
+        self.map_visible = map_visible
+        self.list_visible = True
         self.stop_requested = threading.Event()
         self._lock = threading.Lock()
         self._tty = None
@@ -84,6 +86,18 @@ class ScrollController:
         with self._lock:
             self.offset = min(self.offset, maximum)
 
+    def visibility(self) -> tuple[bool, bool]:
+        with self._lock:
+            return self.map_visible, self.list_visible
+
+    def toggle_map(self) -> None:
+        with self._lock:
+            self.map_visible = not self.map_visible
+
+    def toggle_list(self) -> None:
+        with self._lock:
+            self.list_visible = not self.list_visible
+
     def _read_loop(self) -> None:
         assert self._tty is not None
 
@@ -118,6 +132,10 @@ class ScrollController:
 
             if key in (b"q", b"Q"):
                 self.stop_requested.set()
+            elif key in (b"m", b"M"):
+                self.toggle_map()
+            elif key in (b"l", b"L"):
+                self.toggle_list()
             elif key in (b"j", b"\x1b[B"):
                 self.move(1)
             elif key in (b"k", b"\x1b[A"):
@@ -155,13 +173,34 @@ class AdsbTui:
         self.scroll = scroll
         self.map_view = map_view
         self.auto_map_height = auto_map_height
+        self.configured_map_height = (
+            map_view.height if map_view is not None else 0
+        )
         self.map_initialized_from_aircraft = False
 
-    def fit_map_to_console(self) -> None:
-        if (
-            self.map_view is None
-            or not self.auto_map_height
-        ):
+    def fit_map_to_console(
+        self,
+        map_visible: bool,
+        list_visible: bool,
+    ) -> None:
+        if self.map_view is None or not map_visible:
+            return
+
+        if not list_visible:
+            reserved_lines = (
+                self.HEADER_HEIGHT
+                + self.FOOTER_HEIGHT
+                + self.MAP_BORDER_HEIGHT
+            )
+            map_height = max(
+                self.MINIMUM_MAP_HEIGHT,
+                self.console.size.height - reserved_lines,
+            )
+            self.map_view.set_height(map_height)
+            return
+
+        if not self.auto_map_height:
+            self.map_view.set_height(self.configured_map_height)
             return
 
         aircraft_panels = (
@@ -181,24 +220,24 @@ class AdsbTui:
         )
         self.map_view.set_height(map_height)
 
-    def page_size(self) -> int:
+    def page_size(self, map_visible: bool) -> int:
         if self.configured_page_size > 0:
             return self.configured_page_size
 
-        if self.map_view is not None:
+        if map_visible:
             return self.DEFAULT_MAP_PAGE_SIZE
 
-        map_lines = (
-            self.map_view.height + 2
-            if self.map_view is not None
-            else 0
-        )
         available_lines = max(
             0,
-            self.console.size.height - 8 - map_lines,
+            self.console.size.height
+            - self.HEADER_HEIGHT
+            - self.FOOTER_HEIGHT,
         )
 
-        return max(1, available_lines // 8)
+        return max(
+            1,
+            available_lines // self.AIRCRAFT_PANEL_HEIGHT,
+        )
 
     @staticmethod
     def format_number(
@@ -404,13 +443,14 @@ class AdsbTui:
         noise_level: float | None,
         parser_errors: int,
     ) -> Group:
-        self.fit_map_to_console()
+        map_visible, list_visible = self.scroll.visibility()
+        self.fit_map_to_console(map_visible, list_visible)
 
         all_aircraft = tracker.active_aircraft(
             self.stale_seconds,
         )
 
-        page_size = self.page_size()
+        page_size = self.page_size(map_visible)
         self.scroll.clamp(
             len(all_aircraft),
             page_size,
@@ -441,12 +481,8 @@ class AdsbTui:
                 f"{escape(gain_summary)}[/]"
             ),
             (
-                (
-                    f"[bold white]{len(all_aircraft)}[/] aircraft\n"
-                    f"[dim]showing "
-                    f"{scroll_offset + 1 if all_aircraft else 0}"
-                    f"–{min(scroll_offset + len(aircraft), len(all_aircraft))}[/]"
-                )
+                f"[bold white]{len(all_aircraft)}[/] aircraft\n"
+                f"[dim]{valid_frames:,} valid frames[/]"
             ),
             (
                 f"[bold white]{duration_seconds:,.1f}s[/] captured\n"
@@ -475,7 +511,7 @@ class AdsbTui:
 
         map_panel = None
 
-        if self.map_view is not None:
+        if self.map_view is not None and map_visible:
             aircraft_markers = [
                 MapMarker(
                     latitude=state.latitude,
@@ -544,16 +580,35 @@ class AdsbTui:
             ),
         )
 
-        footer = Text(
-            " ↑/k ↓/j scroll  ·  PgUp/b PgDn/Space page"
-            "  ·  g/G top/bottom  ·  q or Ctrl+C stop",
-            style="dim",
-        )
+        if list_visible:
+            if all_aircraft:
+                range_text = (
+                    f"showing {scroll_offset + 1}–"
+                    f"{min(scroll_offset + len(aircraft), len(all_aircraft))}"
+                    f" of {len(all_aircraft)}"
+                )
+            else:
+                range_text = "0 aircraft"
+
+            footer_text = (
+                f" {range_text}  ·  ↑/k ↓/j scroll"
+                "  ·  PgUp/b PgDn/Space page  ·  g/G top/bottom"
+                "  ·  m map  ·  l list  ·  q or Ctrl+C stop"
+            )
+        else:
+            footer_text = (
+                " m map  ·  l list  ·  q or Ctrl+C stop"
+            )
+
+        footer = Text(footer_text, style="dim")
 
         renderables = [header_panel]
 
         if map_panel is not None:
             renderables.append(map_panel)
 
-        renderables.extend((body, footer))
+        if list_visible:
+            renderables.append(body)
+
+        renderables.append(footer)
         return Group(*renderables)

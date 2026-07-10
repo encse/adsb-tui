@@ -63,26 +63,23 @@ def process_stream(
     )
 
     console = Console()
-    scroll = ScrollController()
+    scroll = ScrollController(map_visible=map_height != 0)
     scroll.start()
 
-    map_view = None
-    auto_map_height = map_height == -1
-
-    if map_height != 0:
-        map_view = MapView(
-            latitude=receiver_latitude,
-            longitude=receiver_longitude,
-            zoom=DEFAULT_MAP_ZOOM,
-            height=(
-                AdsbTui.MINIMUM_MAP_HEIGHT
-                if auto_map_height
-                else map_height
-            ),
-            source=map_source,
-            style=map_style,
-            auto_fit=True,
-        )
+    auto_map_height = map_height in (-1, 0)
+    map_view = MapView(
+        latitude=receiver_latitude,
+        longitude=receiver_longitude,
+        zoom=DEFAULT_MAP_ZOOM,
+        height=(
+            AdsbTui.MINIMUM_MAP_HEIGHT
+            if auto_map_height
+            else map_height
+        ),
+        source=map_source,
+        style=map_style,
+        auto_fit=True,
+    )
 
     tui = AdsbTui(
         console=console,
