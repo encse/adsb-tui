@@ -5,12 +5,8 @@
 An ADS-B decoder for the terminal, built around a Python port of
 [mapscii](https://github.com/rastapasta/mapscii).
 
-<<<<<<< Updated upstream
-The decoder is known to work with `Airspy mini` and `RTL-SDR` dongles.
-=======
-The decoder is known to work with Airspy Mini and RTL-SDR dongles through
+The decoder is known to work with `Airspy Mini` and `RTL-SDR `dongles through
 SoapySDR.
->>>>>>> Stashed changes
 
 ## Installation
 
@@ -23,7 +19,8 @@ python3 -m pip install -r requirements.txt
 ```
 
 ## Airspy
-```
+
+```sh
 conda install -c conda-forge airspy soapysdr-module-airspy
 ```
 
@@ -37,7 +34,8 @@ The Airspy profile tunes to 1090 MHz, samples at 3 MS/s, and sets the LNA,
 mixer, and VGA gains to 14.
 
 ## RTL-SDR
-```
+
+```sh
 conda install -c conda-forge rtl-sdr soapysdr-module-rtlsdr
 ```
 
