@@ -1,0 +1,2 @@
+mapbox-vector-tile==2.2.0
+rich>=13.0,<15.0
