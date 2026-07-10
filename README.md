@@ -1,4 +1,4 @@
-# ADS-B decoder
+# ADS-B TUI
 
 ![screenshot](screenshot.jpg)
 
