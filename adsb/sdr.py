@@ -70,6 +70,7 @@ class SoapySdrSource:
         self.device_type = device_type
         self.frequency_hz = frequency_hz
         self.sample_rate = self.profile.sample_rate
+        self.label = device_type
         self._soapy: ModuleType | None = None
         self._device = None
         self._stream = None
@@ -93,7 +94,14 @@ class SoapySdrSource:
                     "and verify detection with 'SoapySDRUtil --find'."
                 )
 
-            device = soapy.Device(matches[0])
+            device_info = matches[0]
+
+            try:
+                self.label = device_info["label"]
+            except (KeyError, TypeError):
+                self.label = self.device_type
+
+            device = soapy.Device(device_info)
             device.setSampleRate(direction, 0, self.sample_rate)
             device.setFrequency(direction, 0, self.frequency_hz)
 
@@ -125,6 +133,19 @@ class SoapySdrSource:
         self._device = device
         self._stream = stream
         return self
+
+    @property
+    def gain_summary(self) -> str:
+        if self.profile.gains:
+            return " · ".join(
+                f"{name} {value:g} dB"
+                for name, value in self.profile.gains.items()
+            )
+
+        if self.profile.total_gain is not None:
+            return f"gain {self.profile.total_gain:g} dB"
+
+        return "automatic gain"
 
     def __exit__(self, exc_type, exc_value, traceback) -> None:
         self.close()

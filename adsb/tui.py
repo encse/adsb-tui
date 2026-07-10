@@ -8,6 +8,7 @@ import time
 import tty
 
 from rich.console import Console, Group
+from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -393,6 +394,8 @@ class AdsbTui:
         self,
         tracker: AircraftTracker,
         *,
+        device_label: str,
+        gain_summary: str,
         input_sample_rate: int,
         total_input_samples: int,
         candidates: int,
@@ -432,10 +435,10 @@ class AdsbTui:
 
         header.add_row(
             (
-                "[bold bright_cyan]SDR ADS-B[/]\n"
+                f"[bold bright_cyan]{escape(device_label)}[/]\n"
                 "[dim]1090 MHz · "
-                f"{input_sample_rate / 1_000_000:g} "
-                "→ 6 MS/s[/]"
+                f"{input_sample_rate / 1_000_000:g} MS/s · "
+                f"{escape(gain_summary)}[/]"
             ),
             (
                 (

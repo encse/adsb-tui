@@ -144,6 +144,8 @@ def main() -> None:
 
             process_stream(
                 input_chunks=source.chunks(CHUNK_SAMPLES),
+                device_label=source.label,
+                gain_summary=source.gain_summary,
                 input_sample_rate=source.sample_rate,
                 noise_time_constant_seconds=NOISE_TIME_CONSTANT_SECONDS,
                 refresh_rate=args.refresh_rate,

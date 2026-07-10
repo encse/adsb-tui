@@ -35,6 +35,8 @@ from .tui import AdsbTui, ScrollController
 
 def process_stream(
     input_chunks: Iterable[np.ndarray],
+    device_label: str,
+    gain_summary: str,
     input_sample_rate: int,
     noise_time_constant_seconds: float,
     refresh_rate: float,
@@ -112,6 +114,8 @@ def process_stream(
     def render() -> Group:
         return tui.render(
             aircraft_tracker,
+            device_label=device_label,
+            gain_summary=gain_summary,
             input_sample_rate=input_sample_rate,
             total_input_samples=total_input_samples,
             candidates=candidates,
