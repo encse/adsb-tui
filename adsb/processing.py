@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 import time
 from pathlib import Path
-from typing import BinaryIO
+from typing import Iterable
 
 import numpy as np
 import pyModeS as pms
@@ -19,7 +19,6 @@ from .constants import (
     REQUIRED_SAMPLES,
     SAMPLE_RATE,
 )
-from .io import read_iq_chunks
 from .parser import (
     AdsbFrameParser,
     ModeSAddressValidator,
@@ -35,10 +34,8 @@ from .tracking import AircraftTracker
 from .tui import AdsbTui, ScrollController
 
 def process_stream(
-    source: BinaryIO,
-    chunk_samples: int,
+    input_chunks: Iterable[np.ndarray],
     input_sample_rate: int,
-    input_format: str,
     noise_time_constant_seconds: float,
     refresh_rate: float,
     stale_seconds: float,
@@ -133,11 +130,7 @@ def process_stream(
         screen=True,
         vertical_overflow="crop",
     ) as live:
-        for input_chunk in read_iq_chunks(
-            source,
-            chunk_samples,
-            input_format,
-        ):
+        for input_chunk in input_chunks:
             if scroll.stop_requested.is_set():
                 break
 

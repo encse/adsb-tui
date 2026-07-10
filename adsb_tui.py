@@ -6,16 +6,16 @@ import argparse
 from pathlib import Path
 
 from adsb.constants import (
+    ADSB_FREQUENCY_HZ,
     CHUNK_SAMPLES,
-    DEFAULT_INPUT_SAMPLE_RATE,
     DEFAULT_RECEIVER_LATITUDE,
     DEFAULT_RECEIVER_LONGITUDE,
-    INPUT_FORMATS,
+    DEVICE_TYPES,
     NOISE_TIME_CONSTANT_SECONDS,
     SAMPLE_RATE,
 )
-from adsb.io import open_input
 from adsb.processing import process_stream
+from adsb.sdr import SdrError, SoapySdrSource
 from mapscii.mapscii_py.rich_map import (
     DEFAULT_SOURCE as DEFAULT_MAP_SOURCE,
     DEFAULT_STYLE as DEFAULT_MAP_STYLE,
@@ -24,39 +24,14 @@ from mapscii.mapscii_py.rich_map import (
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Streaming 6 MS/s Mode-S decoder "
-            "for CF32 or RTL-SDR CU8 IQ input"
+            "Streaming Mode-S decoder using a SoapySDR device"
         ),
     )
 
     parser.add_argument(
-        "input",
-        nargs="?",
-        default="buffer.iq",
-        help=(
-            "Input IQ file, named pipe, "
-            "or '-' for stdin"
-        ),
-    )
-
-    parser.add_argument(
-        "--sample-rate",
-        type=int,
-        default=DEFAULT_INPUT_SAMPLE_RATE,
-        help=(
-            "Input complex sample rate in samples/s; "
-            "must divide 6000000 exactly (default: 3000000)"
-        ),
-    )
-
-    parser.add_argument(
-        "--input-format",
-        choices=INPUT_FORMATS,
-        default="cf32",
-        help=(
-            "Input IQ format: cf32 for Airspy FLOAT32_IQ, "
-            "cu8 for rtl_sdr (default: cf32)"
-        ),
+        "device",
+        choices=DEVICE_TYPES,
+        help="SoapySDR device type",
     )
 
     parser.add_argument(
@@ -136,18 +111,6 @@ def parse_arguments() -> argparse.Namespace:
 def main() -> None:
     args = parse_arguments()
 
-    if args.sample_rate <= 0:
-        raise ValueError(
-            "--sample-rate must be positive"
-        )
-
-    if SAMPLE_RATE % args.sample_rate != 0:
-        raise ValueError(
-            "--sample-rate must divide "
-            f"{SAMPLE_RATE} exactly; use 2000000, "
-            "3000000, or 6000000"
-        )
-
     if args.refresh_rate <= 0:
         raise ValueError(
             "--refresh-rate must be positive"
@@ -168,29 +131,32 @@ def main() -> None:
             "--map-height must be -1, zero, or positive"
         )
 
-    source, should_close = open_input(
-        args.input
-    )
-
     try:
-        process_stream(
-            source=source,
-            chunk_samples=CHUNK_SAMPLES,
-            input_sample_rate=args.sample_rate,
-            input_format=args.input_format,
-            noise_time_constant_seconds=NOISE_TIME_CONSTANT_SECONDS,
-            refresh_rate=args.refresh_rate,
-            stale_seconds=args.stale_seconds,
-            page_size=args.page_size,
-            receiver_latitude=args.receiver_lat,
-            receiver_longitude=args.receiver_lon,
-            map_height=args.map_height,
-            map_source=args.map_source,
-            map_style=args.map_style,
-        )
-    finally:
-        if should_close:
-            source.close()
+        with SoapySdrSource(
+            args.device,
+            ADSB_FREQUENCY_HZ,
+        ) as source:
+            if SAMPLE_RATE % source.sample_rate != 0:
+                raise ValueError(
+                    f"{args.device} sample rate must divide "
+                    f"{SAMPLE_RATE} exactly"
+                )
+
+            process_stream(
+                input_chunks=source.chunks(CHUNK_SAMPLES),
+                input_sample_rate=source.sample_rate,
+                noise_time_constant_seconds=NOISE_TIME_CONSTANT_SECONDS,
+                refresh_rate=args.refresh_rate,
+                stale_seconds=args.stale_seconds,
+                page_size=args.page_size,
+                receiver_latitude=args.receiver_lat,
+                receiver_longitude=args.receiver_lon,
+                map_height=args.map_height,
+                map_source=args.map_source,
+                map_style=args.map_style,
+            )
+    except SdrError as error:
+        raise SystemExit(f"SDR error: {error}") from None
 
 
 if __name__ == "__main__":
