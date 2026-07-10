@@ -42,6 +42,10 @@ else:
 DEFAULT_INPUT_SAMPLE_RATE = 3_000_000
 SAMPLE_RATE = 6_000_000
 
+DEFAULT_RECEIVER_LATITUDE = 47.4979
+DEFAULT_RECEIVER_LONGITUDE = 19.0402
+DEFAULT_MAP_ZOOM = 9.0
+
 INTERPOLATOR_TAPS = 63
 MAX_INTERPOLATOR_CUTOFF_HZ = 1_350_000
 INPUT_FORMATS = ("cf32", "cu8")
@@ -443,6 +447,7 @@ class AdsbTui:
         self.scroll = scroll
         self.map_view = map_view
         self.auto_map_height = auto_map_height
+        self.map_initialized_from_aircraft = False
 
     def fit_map_to_console(self) -> None:
         if (
@@ -774,17 +779,18 @@ class AdsbTui:
                     and state.longitude is not None
                 )
             ]
-            markers = [
-                MapMarker(
-                    latitude=self.map_view.latitude,
-                    longitude=self.map_view.longitude,
-                    label="RX",
-                    style="bold bright_red",
-                    symbol="●",
-                ),
-                *aircraft_markers,
-            ]
-            self.map_view.set_markers(markers)
+
+            if (
+                aircraft_markers
+                and not self.map_initialized_from_aircraft
+            ):
+                first_marker = aircraft_markers[0]
+                self.map_view.latitude = first_marker.latitude
+                self.map_view.longitude = first_marker.longitude
+                self.map_view.zoom = DEFAULT_MAP_ZOOM
+                self.map_initialized_from_aircraft = True
+
+            self.map_view.set_markers(aircraft_markers)
             map_panel = self.map_view.panel(
                 title=(
                     "[bold cyan]ADS-B MAP[/] "
@@ -1574,7 +1580,6 @@ def process_stream(
     page_size: int,
     receiver_latitude: float,
     receiver_longitude: float,
-    map_zoom: float,
     map_height: int,
     map_source: str,
     map_style: Path,
@@ -1604,7 +1609,7 @@ def process_stream(
         map_view = MapView(
             latitude=receiver_latitude,
             longitude=receiver_longitude,
-            zoom=map_zoom,
+            zoom=DEFAULT_MAP_ZOOM,
             height=(
                 AdsbTui.MINIMUM_MAP_HEIGHT
                 if auto_map_height
@@ -1887,27 +1892,6 @@ def parse_arguments() -> argparse.Namespace:
     )
 
     parser.add_argument(
-        "--chunk-samples",
-        type=int,
-        default=CHUNK_SAMPLES,
-        help=(
-            "Number of input complex samples "
-            "read per chunk"
-        ),
-    )
-
-    parser.add_argument(
-        "--noise-time-constant",
-        type=float,
-        default=NOISE_TIME_CONSTANT_SECONDS,
-        help=(
-            "Noise tracking time constant "
-            "in seconds"
-        ),
-    )
-
-
-    parser.add_argument(
         "--refresh-rate",
         type=float,
         default=8.0,
@@ -1936,8 +1920,11 @@ def parse_arguments() -> argparse.Namespace:
         "--map-lat",
         dest="receiver_lat",
         type=float,
-        default=47.4979,
-        help="Receiver latitude and map center",
+        default=DEFAULT_RECEIVER_LATITUDE,
+        help=(
+            "Initial map center latitude "
+            f"(default: {DEFAULT_RECEIVER_LATITUDE})"
+        ),
     )
 
     parser.add_argument(
@@ -1945,15 +1932,11 @@ def parse_arguments() -> argparse.Namespace:
         "--map-lon",
         dest="receiver_lon",
         type=float,
-        default=19.0402,
-        help="Receiver longitude and map center",
-    )
-
-    parser.add_argument(
-        "--map-zoom",
-        type=float,
-        default=8.0,
-        help="Maximum map zoom; zooms out to fit active aircraft",
+        default=DEFAULT_RECEIVER_LONGITUDE,
+        help=(
+            "Initial map center longitude "
+            f"(default: {DEFAULT_RECEIVER_LONGITUDE})"
+        ),
     )
 
     parser.add_argument(
@@ -1985,11 +1968,6 @@ def parse_arguments() -> argparse.Namespace:
 def main() -> None:
     args = parse_arguments()
 
-    if args.chunk_samples <= 0:
-        raise ValueError(
-            "--chunk-samples must be positive"
-        )
-
     if args.sample_rate <= 0:
         raise ValueError(
             "--sample-rate must be positive"
@@ -2000,11 +1978,6 @@ def main() -> None:
             "--sample-rate must divide "
             f"{SAMPLE_RATE} exactly; use 2000000, "
             "3000000, or 6000000"
-        )
-
-    if args.noise_time_constant <= 0:
-        raise ValueError(
-            "--noise-time-constant must be positive"
         )
 
     if args.refresh_rate <= 0:
@@ -2034,18 +2007,15 @@ def main() -> None:
     try:
         process_stream(
             source=source,
-            chunk_samples=args.chunk_samples,
+            chunk_samples=CHUNK_SAMPLES,
             input_sample_rate=args.sample_rate,
             input_format=args.input_format,
-            noise_time_constant_seconds=(
-                args.noise_time_constant
-            ),
+            noise_time_constant_seconds=NOISE_TIME_CONSTANT_SECONDS,
             refresh_rate=args.refresh_rate,
             stale_seconds=args.stale_seconds,
             page_size=args.page_size,
             receiver_latitude=args.receiver_lat,
             receiver_longitude=args.receiver_lon,
-            map_zoom=args.map_zoom,
             map_height=args.map_height,
             map_source=args.map_source,
             map_style=args.map_style,
