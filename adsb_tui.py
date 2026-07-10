@@ -16,7 +16,7 @@ from adsb.constants import (
 )
 from adsb.processing import process_stream
 from adsb.sdr import SdrError, SoapySdrSource
-from mapscii.mapscii_py.rich_map import (
+from mapscii_py.rich_map import (
     DEFAULT_SOURCE as DEFAULT_MAP_SOURCE,
     DEFAULT_STYLE as DEFAULT_MAP_STYLE,
 )

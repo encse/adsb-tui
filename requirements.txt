@@ -3,3 +3,4 @@ rich>=13.0,<15.0
 numpy==2.2.6
 scipy==1.16.0
 pyModeS==2.22.0
+mapscii-py~=0.1.0

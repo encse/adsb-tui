@@ -13,7 +13,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from mapscii.mapscii_py.rich_map import MapMarker, MapView
+from mapscii_py.rich_map import MapMarker, MapView
 
 from .constants import DEFAULT_MAP_ZOOM
 from .tracking import AircraftState, AircraftTracker

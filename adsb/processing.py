@@ -10,7 +10,7 @@ import pyModeS as pms
 from rich.console import Console, Group
 from rich.live import Live
 
-from mapscii.mapscii_py.rich_map import MapView
+from mapscii_py.rich_map import MapView
 
 from .constants import (
     BIT_SAMPLES,
