@@ -4,7 +4,7 @@
 
 An ADS-B decoder for the terminal, built around a Python port of [mapscii](https://github.com/rastapasta/mapscii).
 
-The decoder is know to work with `Airspy mini` and `RTL-SDR` dongles.
+The decoder is known to work with `Airspy mini` and `RTL-SDR` dongles.
 
 ## Installation
 
