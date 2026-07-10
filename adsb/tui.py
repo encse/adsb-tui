@@ -1,0 +1,556 @@
+from __future__ import annotations
+
+import atexit
+import select
+import termios
+import threading
+import time
+import tty
+
+from rich.console import Console, Group
+from rich.panel import Panel
+from rich.table import Table
+from rich.text import Text
+
+from mapscii.mapscii_py.rich_map import MapMarker, MapView
+
+from .constants import DEFAULT_MAP_ZOOM
+from .tracking import AircraftState, AircraftTracker
+
+class ScrollController:
+    def __init__(self) -> None:
+        self.offset = 0
+        self.stop_requested = threading.Event()
+        self._lock = threading.Lock()
+        self._tty = None
+        self._old_settings = None
+
+    def start(self) -> None:
+        try:
+            self._tty = open("/dev/tty", "rb", buffering=0)
+            self._old_settings = termios.tcgetattr(
+                self._tty.fileno()
+            )
+            tty.setcbreak(self._tty.fileno())
+            atexit.register(self.close)
+
+            threading.Thread(
+                target=self._read_loop,
+                daemon=True,
+            ).start()
+        except OSError:
+            self._tty = None
+            self._old_settings = None
+
+    def close(self) -> None:
+        if (
+            self._tty is not None
+            and self._old_settings is not None
+        ):
+            try:
+                termios.tcsetattr(
+                    self._tty.fileno(),
+                    termios.TCSADRAIN,
+                    self._old_settings,
+                )
+            except (OSError, termios.error):
+                pass
+
+        if self._tty is not None:
+            try:
+                self._tty.close()
+            except OSError:
+                pass
+
+        self._tty = None
+        self._old_settings = None
+
+    def get_offset(self) -> int:
+        with self._lock:
+            return self.offset
+
+    def set_offset(self, value: int) -> None:
+        with self._lock:
+            self.offset = max(0, value)
+
+    def move(self, delta: int) -> None:
+        with self._lock:
+            self.offset = max(0, self.offset + delta)
+
+    def clamp(self, total: int, page_size: int) -> None:
+        maximum = max(0, total - page_size)
+
+        with self._lock:
+            self.offset = min(self.offset, maximum)
+
+    def _read_loop(self) -> None:
+        assert self._tty is not None
+
+        while not self.stop_requested.is_set():
+            readable, _, _ = select.select(
+                [self._tty],
+                [],
+                [],
+                0.1,
+            )
+
+            if not readable:
+                continue
+
+            key = self._tty.read(1)
+
+            if key == b"\x1b":
+                time.sleep(0.005)
+
+                while True:
+                    readable, _, _ = select.select(
+                        [self._tty],
+                        [],
+                        [],
+                        0,
+                    )
+
+                    if not readable:
+                        break
+
+                    key += self._tty.read(1)
+
+            if key in (b"q", b"Q"):
+                self.stop_requested.set()
+            elif key in (b"j", b"\x1b[B"):
+                self.move(1)
+            elif key in (b"k", b"\x1b[A"):
+                self.move(-1)
+            elif key in (b" ", b"\x1b[6~"):
+                self.move(5)
+            elif key in (b"b", b"\x1b[5~"):
+                self.move(-5)
+            elif key in (b"g", b"\x1b[H", b"\x1b[1~"):
+                self.set_offset(0)
+            elif key in (b"G", b"\x1b[F", b"\x1b[4~"):
+                self.set_offset(1_000_000_000)
+
+
+class AdsbTui:
+    AIRCRAFT_PANEL_HEIGHT = 7
+    DEFAULT_MAP_PAGE_SIZE = 2
+    HEADER_HEIGHT = 4
+    FOOTER_HEIGHT = 1
+    MAP_BORDER_HEIGHT = 2
+    MINIMUM_MAP_HEIGHT = 2
+
+    def __init__(
+        self,
+        console: Console,
+        stale_seconds: float,
+        page_size: int,
+        scroll: ScrollController,
+        map_view: MapView | None,
+        auto_map_height: bool,
+    ) -> None:
+        self.console = console
+        self.stale_seconds = stale_seconds
+        self.configured_page_size = page_size
+        self.scroll = scroll
+        self.map_view = map_view
+        self.auto_map_height = auto_map_height
+        self.map_initialized_from_aircraft = False
+
+    def fit_map_to_console(self) -> None:
+        if (
+            self.map_view is None
+            or not self.auto_map_height
+        ):
+            return
+
+        aircraft_panels = (
+            self.configured_page_size
+            if self.configured_page_size > 0
+            else self.DEFAULT_MAP_PAGE_SIZE
+        )
+        reserved_lines = (
+            self.HEADER_HEIGHT
+            + self.FOOTER_HEIGHT
+            + self.MAP_BORDER_HEIGHT
+            + aircraft_panels * self.AIRCRAFT_PANEL_HEIGHT
+        )
+        map_height = max(
+            self.MINIMUM_MAP_HEIGHT,
+            self.console.size.height - reserved_lines,
+        )
+        self.map_view.set_height(map_height)
+
+    def page_size(self) -> int:
+        if self.configured_page_size > 0:
+            return self.configured_page_size
+
+        if self.map_view is not None:
+            return self.DEFAULT_MAP_PAGE_SIZE
+
+        map_lines = (
+            self.map_view.height + 2
+            if self.map_view is not None
+            else 0
+        )
+        available_lines = max(
+            0,
+            self.console.size.height - 8 - map_lines,
+        )
+
+        return max(1, available_lines // 8)
+
+    @staticmethod
+    def format_number(
+        value: int | float | None,
+        suffix: str,
+        decimals: int = 0,
+    ) -> str:
+        if value is None:
+            return "—"
+
+        return f"{value:,.{decimals}f}{suffix}"
+
+    @staticmethod
+    def signal_style(confidence: float) -> str:
+        if confidence >= 0.65:
+            return "bold green"
+        if confidence >= 0.45:
+            return "bold yellow"
+
+        return "bold red"
+
+    @staticmethod
+    def render_scrollbar(
+        total: int,
+        page_size: int,
+        offset: int,
+        height: int,
+    ) -> Text:
+        if total <= page_size or height <= 0:
+            return Text("\n".join(" " for _ in range(height)))
+
+        thumb_height = max(
+            1,
+            round(height * page_size / total),
+        )
+        thumb_height = min(height, thumb_height)
+
+        maximum_offset = total - page_size
+        maximum_thumb_offset = height - thumb_height
+        thumb_offset = round(
+            maximum_thumb_offset * offset / maximum_offset
+        )
+
+        lines = []
+
+        for row in range(height):
+            if thumb_offset <= row < thumb_offset + thumb_height:
+                lines.append("█")
+            else:
+                lines.append("│")
+
+        return Text(
+            "\n".join(lines),
+            style="bright_black",
+            no_wrap=True,
+        )
+
+    def render_aircraft(
+        self,
+        state: AircraftState,
+        latest_timestamp_seconds: float,
+    ) -> Panel:
+        age = max(
+            0.0,
+            latest_timestamp_seconds - state.last_seen_seconds,
+        )
+
+        callsign = state.callsign or "UNKNOWN"
+        title = Text()
+        title.append("✈ ", style="bold cyan")
+        title.append(callsign, style="bold white")
+        title.append("  ")
+        title.append(state.icao, style="bold bright_black")
+
+        speed = (
+            state.ground_speed_kt
+            if state.ground_speed_kt is not None
+            else state.speed_kt
+        )
+        direction = (
+            state.track_deg
+            if state.track_deg is not None
+            else state.heading_deg
+        )
+        direction_label = (
+            "Track"
+            if state.track_deg is not None
+            else "Heading"
+        )
+
+        position = "—"
+
+        if (
+            state.latitude is not None
+            and state.longitude is not None
+        ):
+            position = (
+                f"{state.latitude:.5f}, "
+                f"{state.longitude:.5f}"
+            )
+        elif state.cpr is not None:
+            position = f"CPR {state.cpr}, waiting for pair"
+
+        grid = Table.grid(
+            expand=True,
+            padding=(0, 1),
+        )
+        grid.add_column(ratio=1)
+        grid.add_column(ratio=1)
+
+        grid.add_row(
+            (
+                "[bold cyan]Altitude[/]  "
+                f"{self.format_number(state.altitude_ft, ' ft')}"
+            ),
+            (
+                "[bold cyan]Speed[/]     "
+                f"{self.format_number(speed, ' kt')}"
+            ),
+        )
+        grid.add_row(
+            (
+                f"[bold cyan]{direction_label}[/]     "
+                f"{self.format_number(direction, '°', 1)}"
+            ),
+            (
+                "[bold cyan]Vertical[/]  "
+                f"{self.format_number(state.vertical_rate_fpm, ' ft/min')}"
+            ),
+        )
+        last_code = (
+            f"TC {state.last_tc}"
+            if state.last_tc is not None
+            else state.source
+        )
+
+        grid.add_row(
+            (
+                "[bold cyan]Position[/]  "
+                f"{position}"
+            ),
+            (
+                "[bold cyan]Last data[/] "
+                f"{last_code} · {state.last_type}"
+            ),
+        )
+
+        grid.add_row(
+            (
+                "[bold cyan]Squawk[/]    "
+                f"{state.squawk or '—'}"
+            ),
+            (
+                "[bold cyan]Source[/]    "
+                f"{state.source}"
+            ),
+        )
+
+        signal_style = self.signal_style(state.confidence)
+
+        grid.add_row(
+            (
+                "[dim]Frames[/] "
+                f"{state.frame_count:,}  "
+                "[dim]Age[/] "
+                f"{age:.1f}s"
+            ),
+            (
+                "[dim]Confidence[/] "
+                f"[{signal_style}]"
+                f"{state.confidence:.3f}"
+                "[/]"
+            ),
+        )
+
+        border_style = (
+            "green"
+            if age < 2.0
+            else "yellow"
+            if age < 10.0
+            else "bright_black"
+        )
+
+        return Panel(
+            grid,
+            title=title,
+            title_align="left",
+            border_style=border_style,
+            padding=(0, 1),
+        )
+
+    def render(
+        self,
+        tracker: AircraftTracker,
+        *,
+        input_sample_rate: int,
+        total_input_samples: int,
+        candidates: int,
+        valid_frames: int,
+        baseline: float | None,
+        noise_level: float | None,
+        parser_errors: int,
+    ) -> Group:
+        self.fit_map_to_console()
+
+        all_aircraft = tracker.active_aircraft(
+            self.stale_seconds,
+        )
+
+        page_size = self.page_size()
+        self.scroll.clamp(
+            len(all_aircraft),
+            page_size,
+        )
+        scroll_offset = self.scroll.get_offset()
+
+        aircraft = all_aircraft[
+            scroll_offset:scroll_offset + page_size
+        ]
+
+        header = Table.grid(
+            expand=True,
+            padding=(0, 1),
+        )
+        header.add_column(ratio=1)
+        header.add_column(ratio=1)
+        header.add_column(ratio=1)
+
+        duration_seconds = (
+            total_input_samples / input_sample_rate
+        )
+
+        header.add_row(
+            (
+                "[bold bright_cyan]SDR ADS-B[/]\n"
+                "[dim]1090 MHz · "
+                f"{input_sample_rate / 1_000_000:g} "
+                "→ 6 MS/s[/]"
+            ),
+            (
+                (
+                    f"[bold white]{len(all_aircraft)}[/] aircraft\n"
+                    f"[dim]showing "
+                    f"{scroll_offset + 1 if all_aircraft else 0}"
+                    f"–{min(scroll_offset + len(aircraft), len(all_aircraft))}[/]"
+                )
+            ),
+            (
+                f"[bold white]{duration_seconds:,.1f}s[/] captured\n"
+                f"[dim]{candidates:,} candidates[/]"
+            ),
+        )
+
+        baseline_text = (
+            "—" if baseline is None else f"{baseline:.7f}"
+        )
+        noise_text = (
+            "—" if noise_level is None else f"{noise_level:.7f}"
+        )
+
+        header_panel = Panel(
+            header,
+            title="[bold cyan]✈ ADS-B AIRSPACE MONITOR[/]",
+            subtitle=(
+                f"[dim]baseline {baseline_text} · "
+                f"noise {noise_text} · "
+                f"parser errors {parser_errors}[/]"
+            ),
+            border_style="bright_cyan",
+            padding=(0, 1),
+        )
+
+        map_panel = None
+
+        if self.map_view is not None:
+            aircraft_markers = [
+                MapMarker(
+                    latitude=state.latitude,
+                    longitude=state.longitude,
+                    label=state.callsign or state.icao,
+                    style="bold white",
+                )
+                for state in all_aircraft
+                if (
+                    state.latitude is not None
+                    and state.longitude is not None
+                )
+            ]
+
+            if (
+                aircraft_markers
+                and not self.map_initialized_from_aircraft
+            ):
+                first_marker = aircraft_markers[0]
+                self.map_view.latitude = first_marker.latitude
+                self.map_view.longitude = first_marker.longitude
+                self.map_view.zoom = DEFAULT_MAP_ZOOM
+                self.map_initialized_from_aircraft = True
+
+            self.map_view.set_markers(aircraft_markers)
+            map_panel = self.map_view.panel(
+                title=(
+                    "[bold cyan]ADS-B MAP[/] "
+                    f"[dim]{len(aircraft_markers)} positioned[/]"
+                ),
+            )
+
+        panels = [
+            self.render_aircraft(
+                state,
+                tracker.latest_timestamp_seconds,
+            )
+            for state in aircraft
+        ]
+
+        if not panels:
+            panels.append(
+                Panel(
+                    Text(
+                        "Waiting for CRC-valid ADS-B frames…",
+                        justify="center",
+                        style="dim",
+                    ),
+                    border_style="bright_black",
+                )
+            )
+
+        scrollbar_height = (
+            len(panels) * self.AIRCRAFT_PANEL_HEIGHT
+        )
+        body = Table.grid(expand=True, padding=0)
+        body.add_column(ratio=1)
+        body.add_column(width=1, no_wrap=True)
+        body.add_row(
+            Group(*panels),
+            self.render_scrollbar(
+                len(all_aircraft),
+                page_size,
+                scroll_offset,
+                scrollbar_height,
+            ),
+        )
+
+        footer = Text(
+            " ↑/k ↓/j scroll  ·  PgUp/b PgDn/Space page"
+            "  ·  g/G top/bottom  ·  q or Ctrl+C stop",
+            style="dim",
+        )
+
+        renderables = [header_panel]
+
+        if map_panel is not None:
+            renderables.append(map_panel)
+
+        renderables.extend((body, footer))
+        return Group(*renderables)
