@@ -18,32 +18,30 @@ conda activate adsb
 python3 -m pip install -r requirements.txt
 ```
 
-## Airspy
+for `Airspy Mini`:
 
 ```sh
 conda install -c conda-forge airspy soapysdr-module-airspy
 ```
 
-Then
-
-```sh
-python3 adsb_tui.py airspy 
-```
-
-The Airspy profile tunes to 1090 MHz, samples at 3 MS/s, and sets the LNA,
-mixer, and VGA gains to 14.
-
-## RTL-SDR
+for `RTL-SDR`
 
 ```sh
 conda install -c conda-forge rtl-sdr soapysdr-module-rtlsdr
 ```
 
-Then
+## Usage
 
 ```sh
-python3 adsb_tui.py rtlsdr
+python3 adsb_tui.py airspy 
 ```
+or 
+```sh
+python3 adsb_tui.py rtlsdr 
+```
+
+The Airspy profile tunes to 1090 MHz, samples at 3 MS/s, and sets the LNA,
+mixer, and VGA gains to 14.
 
 The RTL-SDR profile tunes to 1090 MHz, samples at 2 MS/s, and sets the tuner
 gain to 40 dB.
