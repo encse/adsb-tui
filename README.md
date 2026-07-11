@@ -2,7 +2,7 @@
 
 ![screenshot](screenshot.jpg)
 
-An ADS-B decoder for the terminal, built around 
+An ADS-B receiver for the terminal, built around 
 [mapscii-py](https://github.com/encse/mapscii-py).
 
 The decoder is known to work with `Airspy Mini` and `RTL-SDR `dongles through
