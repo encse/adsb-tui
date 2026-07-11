@@ -31,6 +31,7 @@ conda install -c conda-forge rtl-sdr soapysdr-module-rtlsdr
 ```
 
 ## Usage
+Connect your SDR to your computer. Use an antenna appropriate for 1090Mhz. For the RTL-SDR antenna kit: use the shorter antenna fully retracted. It should be about 6cm long on each side.
 
 ```sh
 python3 adsb_tui.py airspy 
