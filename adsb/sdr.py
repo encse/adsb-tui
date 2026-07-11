@@ -17,6 +17,15 @@ class DeviceProfile:
     total_gain: float | None = None
 
 
+@dataclass(frozen=True)
+class GainSetting:
+    name: str
+    value: float
+    minimum: float
+    maximum: float
+    step: float
+
+
 DEVICE_PROFILES = {
     "airspy": DeviceProfile(
         driver="airspy",
@@ -79,6 +88,8 @@ class SoapySdrSource:
         self._device = None
         self._stream = None
         self._log_handler = None
+        self._gain_names: tuple[str, ...] = ()
+        self._gain_settings: tuple[GainSetting, ...] = ()
 
     def _handle_soapy_log(
         self,
@@ -150,6 +161,9 @@ class SoapySdrSource:
                     value,
                 )
 
+            self._gain_names = tuple(device.listGains(direction, 0))
+            self._gain_settings = self._read_gain_settings(device, soapy)
+
             stream = device.setupStream(
                 direction,
                 soapy.SOAPY_SDR_CF32,
@@ -175,16 +189,63 @@ class SoapySdrSource:
 
     @property
     def gain_summary(self) -> str:
-        if self.profile.gains:
+        settings = self.gain_settings
+        if settings:
             return " · ".join(
-                f"{name} {value:g} dB"
-                for name, value in self.profile.gains.items()
+                f"{setting.name} {setting.value:g} dB"
+                for setting in settings
             )
 
-        if self.profile.total_gain is not None:
-            return f"gain {self.profile.total_gain:g} dB"
-
         return "automatic gain"
+
+    @property
+    def gain_settings(self) -> tuple[GainSetting, ...]:
+        return self._gain_settings
+
+    def _read_gain_settings(
+        self,
+        device,
+        soapy: ModuleType,
+    ) -> tuple[GainSetting, ...]:
+        direction = soapy.SOAPY_SDR_RX
+        settings = []
+        for name in self._gain_names:
+            gain_range = device.getGainRange(
+                direction,
+                0,
+                name,
+            )
+            step = float(gain_range.step())
+            settings.append(
+                GainSetting(
+                    name=name,
+                    value=float(device.getGain(direction, 0, name)),
+                    minimum=float(gain_range.minimum()),
+                    maximum=float(gain_range.maximum()),
+                    step=step if step > 0 else 1.0,
+                )
+            )
+        return tuple(settings)
+
+    def adjust_gain(self, name: str, steps: int) -> None:
+        if self._device is None or self._soapy is None:
+            raise RuntimeError("SDR stream is not active")
+
+        setting = next(
+            item for item in self.gain_settings if item.name == name
+        )
+        value = setting.value + steps * setting.step
+        value = min(setting.maximum, max(setting.minimum, value))
+        self._device.setGain(
+            self._soapy.SOAPY_SDR_RX,
+            0,
+            name,
+            value,
+        )
+        self._gain_settings = self._read_gain_settings(
+            self._device,
+            self._soapy,
+        )
 
     def _restore_log_handler(self) -> None:
         if self._soapy is not None:
@@ -232,6 +293,8 @@ class SoapySdrSource:
         self._close_device(self._device, self._stream)
         self._stream = None
         self._device = None
+        self._gain_names = ()
+        self._gain_settings = ()
         self._restore_log_handler()
         self._soapy = None
 

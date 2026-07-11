@@ -51,7 +51,6 @@ def process_stream(
     
     input_chunks=source.chunks(CHUNK_SAMPLES)
     device_label=source.label
-    gain_summary=source.gain_summary
     input_sample_rate=source.sample_rate
 
 
@@ -70,7 +69,12 @@ def process_stream(
     )
 
     console = Console()
-    scroll = ScrollController(map_visible=map_height != 0)
+    scroll = ScrollController(
+        map_visible=map_height != 0,
+        gain_names=tuple(
+            setting.name for setting in source.gain_settings
+        ),
+    )
     scroll.start()
 
     auto_map_height = map_height in (-1, 0)
@@ -119,7 +123,8 @@ def process_stream(
         return tui.render(
             aircraft_tracker,
             device_label=device_label,
-            gain_summary=gain_summary,
+            gain_summary=source.gain_summary,
+            gain_settings=source.gain_settings,
             input_sample_rate=input_sample_rate,
             total_input_samples=total_input_samples,
             candidates=candidates,
@@ -141,6 +146,9 @@ def process_stream(
         for input_chunk in input_chunks:
             if scroll.stop_requested.is_set():
                 break
+
+            for gain_name, steps in scroll.pop_gain_actions():
+                source.adjust_gain(gain_name, steps)
 
             chunk_number += 1
             total_input_samples += input_chunk.size

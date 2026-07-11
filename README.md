@@ -51,8 +51,13 @@ gain to 40 dB.
 
 - `m`: show or hide the map
 - `l`: show or hide the aircraft list
+- `g`: open or close the SDR gain dialog
 - `j`/`k` or arrow keys: scroll the aircraft list
 - `q`: quit
+
+In the gain dialog, use up/down to select a gain stage and left/right (or
+`-`/`+`) to adjust it. The available stages, limits, and step sizes come from
+the connected device, so Airspy and RTL-SDR expose their own controls.
 
 When only the map or the aircraft list is visible, it uses the available
 terminal space.

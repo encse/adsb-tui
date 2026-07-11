@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import atexit
+import math
 import select
 import termios
 import threading
 import time
 import tty
 
+from rich.align import Align
 from rich.console import Console, Group
 from rich.markup import escape
 from rich.panel import Panel
@@ -16,10 +18,16 @@ from rich.text import Text
 from mapscii_py.rich_map import MapMarker, MapView
 
 from .constants import DEFAULT_MAP_ZOOM
+from .sdr import GainSetting
 from .tracking import AircraftState, AircraftTracker
 
 class ScrollController:
-    def __init__(self, *, map_visible: bool = True) -> None:
+    def __init__(
+        self,
+        *,
+        map_visible: bool = True,
+        gain_names: tuple[str, ...] = (),
+    ) -> None:
         self.offset = 0
         self.map_visible = map_visible
         self.list_visible = True
@@ -27,6 +35,10 @@ class ScrollController:
         self._lock = threading.Lock()
         self._tty = None
         self._old_settings = None
+        self.gain_names = gain_names
+        self.gain_dialog_visible = False
+        self.gain_selection = 0
+        self._gain_actions: list[tuple[str, int]] = []
 
     def start(self) -> None:
         try:
@@ -98,6 +110,16 @@ class ScrollController:
         with self._lock:
             self.list_visible = not self.list_visible
 
+    def gain_dialog_state(self) -> tuple[bool, int]:
+        with self._lock:
+            return self.gain_dialog_visible, self.gain_selection
+
+    def pop_gain_actions(self) -> list[tuple[str, int]]:
+        with self._lock:
+            actions = self._gain_actions
+            self._gain_actions = []
+            return actions
+
     def _read_loop(self) -> None:
         assert self._tty is not None
 
@@ -130,8 +152,38 @@ class ScrollController:
 
                     key += self._tty.read(1)
 
+            with self._lock:
+                gain_dialog_visible = self.gain_dialog_visible
+
+            if gain_dialog_visible:
+                with self._lock:
+                    if key in (b"g", b"G", b"\x1b"):
+                        self.gain_dialog_visible = False
+                    elif key in (b"j", b"\x1b[B"):
+                        self.gain_selection = min(
+                            len(self.gain_names) - 1,
+                            self.gain_selection + 1,
+                        )
+                    elif key in (b"k", b"\x1b[A"):
+                        self.gain_selection = max(
+                            0,
+                            self.gain_selection - 1,
+                        )
+                    elif key in (b"h", b"-", b"\x1b[D"):
+                        self._gain_actions.append(
+                            (self.gain_names[self.gain_selection], -1)
+                        )
+                    elif key in (b"l", b"+", b"=", b"\x1b[C"):
+                        self._gain_actions.append(
+                            (self.gain_names[self.gain_selection], 1)
+                        )
+                continue
+
             if key in (b"q", b"Q"):
                 self.stop_requested.set()
+            elif key in (b"g", b"G") and self.gain_names:
+                with self._lock:
+                    self.gain_dialog_visible = True
             elif key in (b"m", b"M"):
                 self.toggle_map()
             elif key in (b"l", b"L"):
@@ -144,7 +196,7 @@ class ScrollController:
                 self.move(5)
             elif key in (b"b", b"\x1b[5~"):
                 self.move(-5)
-            elif key in (b"g", b"\x1b[H", b"\x1b[1~"):
+            elif key in (b"\x1b[H", b"\x1b[1~"):
                 self.set_offset(0)
             elif key in (b"G", b"\x1b[F", b"\x1b[4~"):
                 self.set_offset(1_000_000_000)
@@ -157,6 +209,8 @@ class AdsbTui:
     FOOTER_HEIGHT = 1
     MAP_BORDER_HEIGHT = 2
     MINIMUM_MAP_HEIGHT = 2
+    MINIMUM_RECENTER_DISTANCE_KM = 2.0
+    RECENTER_RADIUS_FRACTION = 0.15
 
     def __init__(
         self,
@@ -211,6 +265,49 @@ class AdsbTui:
             longitude -= 360.0
 
         return latitude, longitude
+
+    @staticmethod
+    def distance_km(
+        first: tuple[float, float],
+        second: tuple[float, float],
+    ) -> float:
+        first_latitude, first_longitude = map(math.radians, first)
+        second_latitude, second_longitude = map(math.radians, second)
+        latitude_delta = second_latitude - first_latitude
+        longitude_delta = second_longitude - first_longitude
+        longitude_delta = (
+            longitude_delta + math.pi
+        ) % (2.0 * math.pi) - math.pi
+        haversine = (
+            math.sin(latitude_delta / 2.0) ** 2
+            + math.cos(first_latitude)
+            * math.cos(second_latitude)
+            * math.sin(longitude_delta / 2.0) ** 2
+        )
+        return 6371.0 * 2.0 * math.asin(
+            min(1.0, math.sqrt(haversine))
+        )
+
+    def should_recenter_map(
+        self,
+        markers: list[MapMarker],
+        target: tuple[float, float],
+    ) -> bool:
+        assert self.map_view is not None
+        current = (self.map_view.latitude, self.map_view.longitude)
+        center_distance = self.distance_km(current, target)
+        marker_radius = max(
+            self.distance_km(
+                target,
+                (marker.latitude, marker.longitude),
+            )
+            for marker in markers
+        )
+        threshold = max(
+            self.MINIMUM_RECENTER_DISTANCE_KM,
+            marker_radius * self.RECENTER_RADIUS_FRACTION,
+        )
+        return center_distance >= threshold
 
     def fit_map_to_console(
         self,
@@ -469,6 +566,7 @@ class AdsbTui:
         *,
         device_label: str,
         gain_summary: str,
+        gain_settings: tuple[GainSetting, ...],
         input_sample_rate: int,
         total_input_samples: int,
         candidates: int,
@@ -538,6 +636,47 @@ class AdsbTui:
             padding=(0, 1),
         )
 
+        gain_dialog_visible, gain_selection = (
+            self.scroll.gain_dialog_state()
+        )
+        if gain_dialog_visible:
+            gain_table = Table.grid(padding=(0, 2))
+            gain_table.add_column(width=2)
+            gain_table.add_column(min_width=8)
+            gain_table.add_column(justify="right", min_width=9)
+            gain_table.add_column(style="dim")
+            for index, setting in enumerate(gain_settings):
+                selected = index == gain_selection
+                gain_table.add_row(
+                    "[bold cyan]›[/]" if selected else "",
+                    (
+                        f"[bold]{escape(setting.name)}[/]"
+                        if selected
+                        else escape(setting.name)
+                    ),
+                    f"[bold white]{setting.value:g} dB[/]",
+                    (
+                        f"{setting.minimum:g}…{setting.maximum:g} dB"
+                        f"  step {setting.step:g}"
+                    ),
+                )
+
+            dialog = Panel(
+                gain_table,
+                title="[bold cyan]SDR GAIN[/]",
+                subtitle=(
+                    "[dim]↑/↓ select · ←/→ or −/+ adjust"
+                    " · g/Esc close[/]"
+                ),
+                border_style="bright_cyan",
+                padding=(1, 2),
+                width=68,
+            )
+            return Group(
+                header_panel,
+                Align.center(dialog, vertical="middle"),
+            )
+
         map_panel = None
 
         if self.map_view is not None and map_visible:
@@ -559,7 +698,12 @@ class AdsbTui:
                 latitude, longitude = self.marker_center(
                     aircraft_markers
                 )
-                self.map_view.set_center(latitude, longitude)
+                target_center = (latitude, longitude)
+                if self.should_recenter_map(
+                    aircraft_markers,
+                    target_center,
+                ):
+                    self.map_view.set_center(*target_center)
                 self.map_view.set_zoom(DEFAULT_MAP_ZOOM)
 
             self.map_view.set_markers(aircraft_markers)
@@ -618,12 +762,12 @@ class AdsbTui:
 
             footer_text = (
                 f" {range_text}  ·  ↑/k ↓/j scroll"
-                "  ·  PgUp/b PgDn/Space page  ·  g/G top/bottom"
-                "  ·  m map  ·  l list  ·  q or Ctrl+C stop"
+                "  ·  PgUp/b PgDn/Space page  ·  Home/End top/bottom"
+                "  ·  g gain  ·  m map  ·  l list  ·  q stop"
             )
         else:
             footer_text = (
-                " m map  ·  l list  ·  q or Ctrl+C stop"
+                " g gain  ·  m map  ·  l list  ·  q or Ctrl+C stop"
             )
 
         footer = Text(footer_text, style="dim")
