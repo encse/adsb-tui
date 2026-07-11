@@ -68,6 +68,12 @@ class AircraftTracker:
         self.aircraft: dict[str, AircraftState] = {}
         self.latest_timestamp_seconds = 0.0
 
+    def advance_time(self, timestamp_seconds: float) -> None:
+        self.latest_timestamp_seconds = max(
+            self.latest_timestamp_seconds,
+            timestamp_seconds,
+        )
+
     def update(
         self,
         decoded: dict[str, Any],
@@ -79,10 +85,7 @@ class AircraftTracker:
         if not icao:
             return
 
-        self.latest_timestamp_seconds = max(
-            self.latest_timestamp_seconds,
-            timestamp_seconds,
-        )
+        self.advance_time(timestamp_seconds)
 
         state = self.aircraft.get(icao)
 

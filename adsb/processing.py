@@ -130,7 +130,7 @@ def process_stream(
             candidates=candidates,
             valid_frames=valid_frames,
             activity_db=tracker.activity_db,
-            sdr_overflow_errors=source.overflow_count,
+            sdr_errors=source.overflow_count + source.underflow_count,
             parser_errors=parser_errors,
         )
 
@@ -152,6 +152,9 @@ def process_stream(
 
             chunk_number += 1
             total_input_samples += input_chunk.size
+            aircraft_tracker.advance_time(
+                total_input_samples / input_sample_rate
+            )
 
             interpolated = interpolator.process(
                 input_chunk

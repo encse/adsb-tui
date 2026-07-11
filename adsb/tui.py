@@ -622,7 +622,7 @@ class AdsbTui:
         candidates: int,
         valid_frames: int,
         activity_db: float,
-        sdr_overflow_errors: int,
+        sdr_errors: int,
         parser_errors: int,
     ) -> Group | ModalOverlay:
         map_visible, list_visible = self.scroll.visibility()
@@ -678,8 +678,8 @@ class AdsbTui:
             header,
             title="[bold cyan]✈ ADS-B AIRSPACE MONITOR[/]",
             subtitle=(
-                f"[dim]activity {activity_text} · "
-                f"SDR overflows {sdr_overflow_errors} · "
+                f"[dim]signal {activity_text} · "
+                f"SDR errors {sdr_errors} · "
                 f"parser errors {parser_errors}[/]"
             ),
             border_style="bright_cyan",
