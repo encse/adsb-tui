@@ -176,7 +176,41 @@ class AdsbTui:
         self.configured_map_height = (
             map_view.height if map_view is not None else 0
         )
-        self.map_initialized_from_aircraft = False
+
+    @staticmethod
+    def marker_center(
+        markers: list[MapMarker],
+    ) -> tuple[float, float]:
+        """Return the center of the smallest box containing the markers."""
+        latitudes = [marker.latitude for marker in markers]
+        longitudes = sorted(
+            marker.longitude % 360.0 for marker in markers
+        )
+
+        latitude = (min(latitudes) + max(latitudes)) / 2.0
+
+        if len(longitudes) == 1:
+            longitude = longitudes[0]
+        else:
+            gaps = [
+                longitudes[index + 1] - longitudes[index]
+                for index in range(len(longitudes) - 1)
+            ]
+            gaps.append(longitudes[0] + 360.0 - longitudes[-1])
+            largest_gap_index = max(
+                range(len(gaps)),
+                key=gaps.__getitem__,
+            )
+            arc_start = longitudes[
+                (largest_gap_index + 1) % len(longitudes)
+            ]
+            arc_length = 360.0 - gaps[largest_gap_index]
+            longitude = (arc_start + arc_length / 2.0) % 360.0
+
+        if longitude >= 180.0:
+            longitude -= 360.0
+
+        return latitude, longitude
 
     def fit_map_to_console(
         self,
@@ -521,15 +555,12 @@ class AdsbTui:
                 )
             ]
 
-            if (
-                aircraft_markers
-                and not self.map_initialized_from_aircraft
-            ):
-                first_marker = aircraft_markers[0]
-                self.map_view.latitude = first_marker.latitude
-                self.map_view.longitude = first_marker.longitude
-                self.map_view.zoom = DEFAULT_MAP_ZOOM
-                self.map_initialized_from_aircraft = True
+            if aircraft_markers:
+                latitude, longitude = self.marker_center(
+                    aircraft_markers
+                )
+                self.map_view.set_center(latitude, longitude)
+                self.map_view.set_zoom(DEFAULT_MAP_ZOOM)
 
             self.map_view.set_markers(aircraft_markers)
             map_panel = self.map_view.panel(
