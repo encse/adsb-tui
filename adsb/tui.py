@@ -8,10 +8,10 @@ import threading
 import time
 import tty
 
-from rich.align import Align
 from rich.console import Console, Group
 from rich.markup import escape
 from rich.panel import Panel
+from rich.segment import Segment
 from rich.table import Table
 from rich.text import Text
 
@@ -20,6 +20,56 @@ from mapscii_py.rich_map import MapMarker, MapView
 from .constants import DEFAULT_MAP_ZOOM
 from .sdr import GainSetting
 from .tracking import AircraftState, AircraftTracker
+
+
+class ModalOverlay:
+    """Render a centered modal on top of an existing Rich renderable."""
+
+    def __init__(self, background, dialog, *, width: int) -> None:
+        self.background = background
+        self.dialog = dialog
+        self.width = width
+
+    def __rich_console__(self, console, options):
+        canvas_width = options.max_width
+        canvas_height = options.max_height
+        dialog_width = min(self.width, canvas_width)
+
+        background_lines = console.render_lines(
+            self.background,
+            options.update(
+                width=canvas_width,
+                height=canvas_height,
+            ),
+            pad=True,
+        )
+        dialog_lines = console.render_lines(
+            self.dialog,
+            options.update(
+                width=dialog_width,
+                height=None,
+            ),
+            pad=True,
+        )
+
+        left = max(0, (canvas_width - dialog_width) // 2)
+        top = max(0, (canvas_height - len(dialog_lines)) // 2)
+
+        for row, background_line in enumerate(background_lines):
+            dialog_row = row - top
+            if 0 <= dialog_row < len(dialog_lines):
+                parts = list(
+                    Segment.divide(
+                        background_line,
+                        (left, left + dialog_width, canvas_width),
+                    )
+                )
+                yield from parts[0]
+                yield from dialog_lines[dialog_row]
+                yield from parts[2]
+            else:
+                yield from background_line
+            yield Segment.line()
 
 class ScrollController:
     def __init__(
@@ -574,7 +624,7 @@ class AdsbTui:
         activity_db: float,
         sdr_overflow_errors: int,
         parser_errors: int,
-    ) -> Group:
+    ) -> Group | ModalOverlay:
         map_visible, list_visible = self.scroll.visibility()
         self.fit_map_to_console(map_visible, list_visible)
 
@@ -639,6 +689,7 @@ class AdsbTui:
         gain_dialog_visible, gain_selection = (
             self.scroll.gain_dialog_state()
         )
+        dialog = None
         if gain_dialog_visible:
             gain_table = Table.grid(padding=(0, 2))
             gain_table.add_column(width=2)
@@ -670,11 +721,6 @@ class AdsbTui:
                 ),
                 border_style="bright_cyan",
                 padding=(1, 2),
-                width=68,
-            )
-            return Group(
-                header_panel,
-                Align.center(dialog, vertical="middle"),
             )
 
         map_panel = None
@@ -781,4 +827,7 @@ class AdsbTui:
             renderables.append(body)
 
         renderables.append(footer)
-        return Group(*renderables)
+        background = Group(*renderables)
+        if dialog is not None:
+            return ModalOverlay(background, dialog, width=68)
+        return background
