@@ -71,12 +71,42 @@ class SoapySdrSource:
         self.frequency_hz = frequency_hz
         self.sample_rate = self.profile.sample_rate
         self.label = device_type
+
+        self.overflow_count = 0
+        self.underflow_count = 0
+
         self._soapy: ModuleType | None = None
         self._device = None
         self._stream = None
+        self._log_handler = None
+
+    def _handle_soapy_log(
+        self,
+        level: int,
+        message: str,
+    ) -> None:
+        if self._soapy is None:
+            return
+
+        if level == self._soapy.SOAPY_SDR_SSI:
+            print("xxxx", message)
+
+            indicators = message.strip()
+
+            self.overflow_count += indicators.count("O")
+            self.underflow_count += indicators.count("U")
+            return
+
+        # Ignore other SoapySDR messages here, or forward them to your
+        # application logger if needed.
 
     def __enter__(self) -> SoapySdrSource:
         soapy = _load_soapy_sdr()
+        self._soapy = soapy
+
+        self._log_handler = self._handle_soapy_log
+        soapy.registerLogHandler(self._log_handler)
+
         direction = soapy.SOAPY_SDR_RX
 
         device = None
@@ -106,30 +136,39 @@ class SoapySdrSource:
             device.setFrequency(direction, 0, self.frequency_hz)
 
             if self.profile.total_gain is not None:
-                device.setGain(direction, 0, self.profile.total_gain)
+                device.setGain(
+                    direction,
+                    0,
+                    self.profile.total_gain,
+                )
 
             for name, value in self.profile.gains.items():
-                device.setGain(direction, 0, name, value)
+                device.setGain(
+                    direction,
+                    0,
+                    name,
+                    value,
+                )
 
             stream = device.setupStream(
                 direction,
                 soapy.SOAPY_SDR_CF32,
                 [0],
             )
-            self._stream = stream
+
             device.activateStream(stream)
+
         except SdrError:
             self._close_device(device, stream)
-            self._stream = None
+            self._restore_log_handler()
             raise
         except Exception as error:
             self._close_device(device, stream)
-            self._stream = None
+            self._restore_log_handler()
             raise SdrError(
                 f"could not configure the {self.device_type} device: {error}"
             ) from error
 
-        self._soapy = soapy
         self._device = device
         self._stream = stream
         return self
@@ -147,6 +186,13 @@ class SoapySdrSource:
 
         return "automatic gain"
 
+    def _restore_log_handler(self) -> None:
+        if self._soapy is not None:
+            with suppress(Exception):
+                self._soapy.registerLogHandler(None)
+
+        self._log_handler = None
+        
     def __exit__(self, exc_type, exc_value, traceback) -> None:
         self.close()
 
@@ -186,6 +232,7 @@ class SoapySdrSource:
         self._close_device(self._device, self._stream)
         self._stream = None
         self._device = None
+        self._restore_log_handler()
         self._soapy = None
 
     @staticmethod

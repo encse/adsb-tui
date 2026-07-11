@@ -90,7 +90,6 @@ class StreamingInterpolator:
 
         return filtered.astype(np.complex64, copy=False)
 
-
 class SignalLevelTracker:
     def __init__(
         self,
@@ -102,36 +101,61 @@ class SignalLevelTracker:
 
         self.baseline: float | None = None
         self.noise_level: float | None = None
+        self.activity_db = 0.0
 
     def update(self, samples: np.ndarray) -> None:
         if samples.size == 0:
             return
 
+        chunk_duration = samples.size / self.sample_rate
+
         measured_baseline = float(np.median(samples))
         measured_noise = float(
-            np.median(np.abs(samples - measured_baseline))
+            np.median(
+                np.abs(samples - measured_baseline)
+            )
         )
-        measured_noise = max(measured_noise, MIN_NOISE_LEVEL)
+        measured_noise = max(
+            measured_noise,
+            MIN_NOISE_LEVEL,
+        )
 
         if self.baseline is None or self.noise_level is None:
             self.baseline = measured_baseline
             self.noise_level = measured_noise
-            return
+        else:
+            alpha = 1.0 - np.exp(
+                -chunk_duration / self.time_constant_seconds
+            )
 
-        chunk_duration = samples.size / self.sample_rate
-        alpha = 1.0 - np.exp(
-            -chunk_duration / self.time_constant_seconds
+            self.baseline += alpha * (
+                measured_baseline - self.baseline
+            )
+            self.noise_level += alpha * (
+                measured_noise - self.noise_level
+            )
+            self.noise_level = max(
+                self.noise_level,
+                MIN_NOISE_LEVEL,
+            )
+
+        measured_activity = measure_chunk_activity_db(
+            signal=samples,
+            baseline=measured_baseline,
+            noise_level=measured_noise,
         )
 
-        self.baseline += alpha * (
-            measured_baseline - self.baseline
+        if measured_activity > self.activity_db:
+            activity_time_constant = 0.1
+        else:
+            activity_time_constant = 0.8
+
+        activity_alpha = 1.0 - np.exp(
+            -chunk_duration / activity_time_constant
         )
-        self.noise_level += alpha * (
-            measured_noise - self.noise_level
-        )
-        self.noise_level = max(
-            self.noise_level,
-            MIN_NOISE_LEVEL,
+
+        self.activity_db += activity_alpha * (
+            measured_activity - self.activity_db
         )
 
 def bits_to_bytes(bits: np.ndarray) -> bytes:
@@ -240,6 +264,35 @@ def range_sums(
         - prefix[start:start + count]
     )
 
+def measure_chunk_activity_db(
+    signal: np.ndarray,
+    baseline: float,
+    noise_level: float,
+) -> float:
+    noise_level = max(
+        noise_level,
+        MIN_NOISE_LEVEL,
+    )
+
+    # Express every sample relative to the tracked noise distribution.
+    normalized = (
+        signal - baseline
+    ) / noise_level
+
+    # Ignore ordinary noise and retain only meaningful excursions.
+    excess = np.maximum(
+        normalized - 3.0,
+        0.0,
+    )
+
+    # This combines signal strength and the duration of activity.
+    activity = float(
+        np.mean(excess * excess)
+    )
+
+    return 10.0 * np.log10(
+        1.0 + activity
+    )
 
 def find_preamble_candidates(
     signal: np.ndarray,

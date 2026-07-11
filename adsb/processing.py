@@ -12,8 +12,11 @@ from rich.live import Live
 
 from mapscii_py.rich_map import MapView
 
+from adsb.sdr import SoapySdrSource
+
 from .constants import (
     BIT_SAMPLES,
+    CHUNK_SAMPLES,
     DEFAULT_MAP_ZOOM,
     PREAMBLE_SAMPLES,
     REQUIRED_SAMPLES,
@@ -34,10 +37,7 @@ from .tracking import AircraftTracker
 from .tui import AdsbTui, ScrollController
 
 def process_stream(
-    input_chunks: Iterable[np.ndarray],
-    device_label: str,
-    gain_summary: str,
-    input_sample_rate: int,
+    source: SoapySdrSource,
     noise_time_constant_seconds: float,
     refresh_rate: float,
     stale_seconds: float,
@@ -48,6 +48,13 @@ def process_stream(
     map_source: str,
     map_style: Path,
 ) -> None:
+    
+    input_chunks=source.chunks(CHUNK_SAMPLES)
+    device_label=source.label
+    gain_summary=source.gain_summary
+    input_sample_rate=source.sample_rate
+
+
     parser = AdsbFrameParser()
     address_validator = ModeSAddressValidator()
     aircraft_tracker = AircraftTracker()
@@ -117,8 +124,8 @@ def process_stream(
             total_input_samples=total_input_samples,
             candidates=candidates,
             valid_frames=valid_frames,
-            baseline=tracker.baseline,
-            noise_level=tracker.noise_level,
+            activity_db=tracker.activity_db,
+            sdr_overflow_errors=source.overflow_count,
             parser_errors=parser_errors,
         )
 

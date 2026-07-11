@@ -439,8 +439,8 @@ class AdsbTui:
         total_input_samples: int,
         candidates: int,
         valid_frames: int,
-        baseline: float | None,
-        noise_level: float | None,
+        activity_db: float,
+        sdr_overflow_errors: int,
         parser_errors: int,
     ) -> Group:
         map_visible, list_visible = self.scroll.visibility()
@@ -490,19 +490,14 @@ class AdsbTui:
             ),
         )
 
-        baseline_text = (
-            "—" if baseline is None else f"{baseline:.7f}"
-        )
-        noise_text = (
-            "—" if noise_level is None else f"{noise_level:.7f}"
-        )
+        activity_text = f"{activity_db:.1f} dB"
 
         header_panel = Panel(
             header,
             title="[bold cyan]✈ ADS-B AIRSPACE MONITOR[/]",
             subtitle=(
-                f"[dim]baseline {baseline_text} · "
-                f"noise {noise_text} · "
+                f"[dim]activity {activity_text} · "
+                f"SDR overflows {sdr_overflow_errors} · "
                 f"parser errors {parser_errors}[/]"
             ),
             border_style="bright_cyan",
