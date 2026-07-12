@@ -253,6 +253,7 @@ class ScrollController:
 
 
 class AdsbTui:
+    AIRCRAFT_INACTIVE_SECONDS = 10.0
     AIRCRAFT_PANEL_HEIGHT = 7
     DEFAULT_MAP_PAGE_SIZE = 2
     HEADER_HEIGHT = 4
@@ -598,7 +599,7 @@ class AdsbTui:
             "green"
             if age < 2.0
             else "yellow"
-            if age < 10.0
+            if age < self.AIRCRAFT_INACTIVE_SECONDS
             else "bright_black"
         )
 
@@ -731,7 +732,15 @@ class AdsbTui:
                     latitude=state.latitude,
                     longitude=state.longitude,
                     label=state.callsign or state.icao,
-                    style="bold white",
+                    style=(
+                        "bright_black"
+                        if (
+                            tracker.latest_timestamp_seconds
+                            - state.last_seen_seconds
+                            >= self.AIRCRAFT_INACTIVE_SECONDS
+                        )
+                        else "bold white"
+                    ),
                 )
                 for state in all_aircraft
                 if (
