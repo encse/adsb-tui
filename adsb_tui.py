@@ -16,10 +16,10 @@ from adsb.constants import (
 )
 from adsb.processing import process_stream
 from adsb.sdr import SdrError, SoapySdrSource
-from mapscii_py.rich_map import (
-    DEFAULT_SOURCE as DEFAULT_MAP_SOURCE,
-    DEFAULT_STYLE as DEFAULT_MAP_STYLE,
-)
+from mapscii_py.rich_map import DEFAULT_SOURCE as DEFAULT_MAP_SOURCE
+
+DEFAULT_MAP_STYLE = Path(__file__).resolve().parent / "style.json"
+
 
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
