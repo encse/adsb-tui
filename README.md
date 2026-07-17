@@ -3,10 +3,9 @@
 ![screenshot](screenshot.jpg)
 
 An ADS-B receiver for the terminal, built around 
-[mapscii-py](https://github.com/encse/mapscii-py).
+[mapscii-py](https://github.com/encse/mapscii-py) and [SoapySDR](https://github.com/pothosware/SoapySDR)
 
-The decoder is known to work with `Airspy Mini` and `RTL-SDR `dongles through
-SoapySDR.
+The decoder is known to work with `Airspy Mini` and `RTL-SDR `dongles, probably not hard to add more, but I have these two around. I'm on a Mac so cannot tell if there is anything wrong with the display on Windows. 
 
 ## Installation
 
