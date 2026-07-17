@@ -56,7 +56,6 @@ def _load_soapy_sdr() -> ModuleType:
     except ImportError as error:
         raise SdrError(
             "SoapySDR is not installed in this Python environment. "
-            "Install soapysdr and the selected device module with conda."
         ) from error
 
     return SoapySDR
@@ -65,21 +64,21 @@ def _load_soapy_sdr() -> ModuleType:
 class SoapySdrSource:
     def __init__(
         self,
-        device_type: str,
+        device_type: str | None,
         frequency_hz: int,
     ) -> None:
-        try:
-            self.profile = DEVICE_PROFILES[device_type]
-        except KeyError as error:
+        if device_type is not None and device_type not in DEVICE_PROFILES:
             supported = ", ".join(DEVICE_PROFILES)
             raise ValueError(
                 f"unsupported SDR device {device_type!r}; use {supported}"
-            ) from error
+            )
 
-        self.device_type = device_type
+        self.requested_device_type = device_type
+        self.device_type = device_type or "auto"
         self.frequency_hz = frequency_hz
-        self.sample_rate = self.profile.sample_rate
-        self.label = device_type
+        self.profile: DeviceProfile | None = None
+        self.sample_rate = 0
+        self.label = self.device_type
 
         self.overflow_count = 0
         self.underflow_count = 0
@@ -124,18 +123,53 @@ class SoapySdrSource:
         stream = None
 
         try:
-            matches = soapy.Device.enumerate(
-                {"driver": self.profile.driver}
-            )
+            if self.requested_device_type is None:
+                device_types = tuple(DEVICE_PROFILES)
+            else:
+                device_types = (self.requested_device_type,)
 
-            if not matches:
+            device_info = None
+            discovery_errors = []
+            for device_type in device_types:
+                profile = DEVICE_PROFILES[device_type]
+                try:
+                    matches = soapy.Device.enumerate(
+                        {"driver": profile.driver}
+                    )
+                except Exception as error:
+                    discovery_errors.append(f"{device_type}: {error}")
+                    continue
+
+                if matches:
+                    self.device_type = device_type
+                    self.profile = profile
+                    self.sample_rate = profile.sample_rate
+                    device_info = matches[0]
+                    break
+
+            if device_info is None:
+                if self.requested_device_type is None:
+                    message = (
+                        "no connected supported SDR device was found "
+                        f"(tried: {', '.join(device_types)})."
+                    )
+                else:
+                    message = (
+                        f"no connected {self.device_type} device was found."
+                    )
+
+                if discovery_errors:
+                    message += " Driver errors: " + "; ".join(
+                        discovery_errors
+                    )
+
                 raise SdrError(
-                    f"no connected {self.device_type} device was found. "
+                    f"{message} "
                     "Check the USB connection, close other SDR programs, "
                     "and verify detection with 'SoapySDRUtil --find'."
                 )
 
-            device_info = matches[0]
+            assert self.profile is not None
 
             try:
                 self.label = device_info["label"]

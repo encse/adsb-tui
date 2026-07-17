@@ -30,8 +30,13 @@ def parse_arguments() -> argparse.Namespace:
 
     parser.add_argument(
         "device",
+        nargs="?",
         choices=DEVICE_TYPES,
-        help="SoapySDR device type",
+        default=None,
+        help=(
+            "SoapySDR device type; when omitted, automatically use the "
+            "first connected supported device"
+        ),
     )
 
     parser.add_argument(
@@ -139,7 +144,7 @@ def main() -> None:
         ) as source:
             if SAMPLE_RATE % source.sample_rate != 0:
                 raise ValueError(
-                    f"{args.device} sample rate must divide "
+                    f"{source.device_type} sample rate must divide "
                     f"{SAMPLE_RATE} exactly"
                 )
 
