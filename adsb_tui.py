@@ -10,7 +10,6 @@ from adsb.constants import (
     CHUNK_SAMPLES,
     DEFAULT_RECEIVER_LATITUDE,
     DEFAULT_RECEIVER_LONGITUDE,
-    DEVICE_TYPES,
     NOISE_TIME_CONSTANT_SECONDS,
     SAMPLE_RATE,
 )
@@ -25,17 +24,6 @@ def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Streaming Mode-S decoder using a SoapySDR device"
-        ),
-    )
-
-    parser.add_argument(
-        "device",
-        nargs="?",
-        choices=DEVICE_TYPES,
-        default=None,
-        help=(
-            "SoapySDR device type; when omitted, automatically use the "
-            "first connected supported device"
         ),
     )
 
@@ -139,7 +127,7 @@ def main() -> None:
 
     try:
         with SoapySdrSource(
-            args.device,
+            None,
             ADSB_FREQUENCY_HZ,
         ) as source:
             if SAMPLE_RATE % source.sample_rate != 0:

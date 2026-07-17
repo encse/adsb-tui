@@ -38,19 +38,7 @@ python3 adsb_tui.py
 ```
 
 At startup, the program tries the supported SoapySDR drivers in order and
-uses the first one that reports a connected device. To select a driver
-explicitly instead:
-
-```sh
-python3 adsb_tui.py airspy
-python3 adsb_tui.py rtlsdr 
-```
-
-The Airspy profile tunes to 1090 MHz, samples at 3 MS/s, and sets the LNA,
-mixer, and VGA gains to 14.
-
-The RTL-SDR profile tunes to 1090 MHz, samples at 2 MS/s, and sets the tuner
-gain to 40 dB.
+uses the first one that reports a connected device.
 
 ## Keyboard controls
 
@@ -60,20 +48,10 @@ gain to 40 dB.
 - `j`/`k` or arrow keys: scroll the aircraft list
 - `q`: quit
 
-In the gain dialog, use up/down to select a gain stage and left/right (or
-`-`/`+`) to adjust it. The available stages, limits, and step sizes come from
-the connected device, so Airspy and RTL-SDR expose their own controls.
-
-When only the map or the aircraft list is visible, it uses the available
-terminal space.
-
 ## Receiver position and map
 
 Set the receiver position with `--receiver-lat` and `--receiver-lon`:
 
 ```sh
-python3 adsb_tui.py \
-    --receiver-lat 47.4979 \
-    --receiver-lon 19.0402 \
-    airspy
+python3 adsb_tui.py --receiver-lat 47.4979 --receiver-lon 19.0402
 ```
