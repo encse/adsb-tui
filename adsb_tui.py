@@ -8,8 +8,6 @@ from pathlib import Path
 from adsb.constants import (
     ADSB_FREQUENCY_HZ,
     CHUNK_SAMPLES,
-    DEFAULT_RECEIVER_LATITUDE,
-    DEFAULT_RECEIVER_LONGITUDE,
     NOISE_TIME_CONSTANT_SECONDS,
     SAMPLE_RATE,
 )
@@ -49,27 +47,12 @@ def parse_arguments() -> argparse.Namespace:
     )
 
     parser.add_argument(
-        "--receiver-lat",
-        "--map-lat",
-        dest="receiver_lat",
+        "--qth",
         type=float,
-        default=DEFAULT_RECEIVER_LATITUDE,
-        help=(
-            "Initial map center latitude "
-            f"(default: {DEFAULT_RECEIVER_LATITUDE})"
-        ),
-    )
-
-    parser.add_argument(
-        "--receiver-lon",
-        "--map-lon",
-        dest="receiver_lon",
-        type=float,
-        default=DEFAULT_RECEIVER_LONGITUDE,
-        help=(
-            "Initial map center longitude "
-            f"(default: {DEFAULT_RECEIVER_LONGITUDE})"
-        ),
+        nargs=2,
+        metavar=("LAT", "LON"),
+        default=None,
+        help="QTH latitude and longitude",
     )
 
     parser.add_argument(
@@ -106,6 +89,17 @@ def main() -> None:
             "--list-size must be positive"
         )
 
+    if args.qth is not None:
+        receiver_latitude, receiver_longitude = args.qth
+        if not -90 <= receiver_latitude <= 90:
+            raise ValueError(
+                "receiver latitude must be between -90 and 90"
+            )
+        if not -180 <= receiver_longitude <= 180:
+            raise ValueError(
+                "receiver longitude must be between -180 and 180"
+            )
+
 
     try:
         with SoapySdrSource(
@@ -124,8 +118,11 @@ def main() -> None:
                 refresh_rate=args.refresh_rate,
                 stale_seconds=args.stale_seconds,
                 list_size=args.list_size,
-                receiver_latitude=args.receiver_lat,
-                receiver_longitude=args.receiver_lon,
+                receiver_position=(
+                    (args.qth[0], args.qth[1])
+                    if args.qth is not None
+                    else None
+                ),
                 map_source=args.map_source,
                 map_style=args.map_style,
             )

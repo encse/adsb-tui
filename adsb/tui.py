@@ -269,12 +269,14 @@ class AdsbTui:
         list_size: int,
         scroll: ScrollController,
         map_view: MapView | None,
+        receiver_position: tuple[float, float] | None = None,
     ) -> None:
         self.console = console
         self.stale_seconds = stale_seconds
         self.configured_list_size = list_size
         self.scroll = scroll
         self.map_view = map_view
+        self.receiver_position = receiver_position
 
     @staticmethod
     def marker_center(
@@ -730,19 +732,34 @@ class AdsbTui:
                 )
             ]
 
-            if aircraft_markers:
+            map_markers = list(aircraft_markers)
+            if self.receiver_position is not None:
+                receiver_latitude, receiver_longitude = (
+                    self.receiver_position
+                )
+                map_markers.append(
+                    MapMarker(
+                        latitude=receiver_latitude,
+                        longitude=receiver_longitude,
+                        label="QTH",
+                        style="bold bright_cyan",
+                        symbol="●",
+                    )
+                )
+
+            if map_markers:
                 latitude, longitude = self.marker_center(
-                    aircraft_markers
+                    map_markers
                 )
                 target_center = (latitude, longitude)
                 if self.should_recenter_map(
-                    aircraft_markers,
+                    map_markers,
                     target_center,
                 ):
                     self.map_view.set_center(*target_center)
                 self.map_view.set_zoom(DEFAULT_MAP_ZOOM)
 
-            self.map_view.set_markers(aircraft_markers)
+            self.map_view.set_markers(map_markers)
             map_panel = self.map_view.panel(
                 title=(
                     "[bold cyan]ADS-B MAP[/] "

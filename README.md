@@ -52,10 +52,12 @@ map is hidden, the aircraft list automatically fills the available space.
 - `j`/`k` or arrow keys: scroll the aircraft list
 - `q`: quit
 
-## Receiver position and map
+## Receiver position (QTH) and map
 
-Set the receiver position with `--receiver-lat` and `--receiver-lon`:
+Set the receiver position with `--qth LAT LON`:
 
 ```sh
-python3 adsb_tui.py --receiver-lat 47.4979 --receiver-lon 19.0402
+python3 adsb_tui.py --qth 47.4979 19.0402
 ```
+
+The QTH is marked on the map and included in the map center calculation.

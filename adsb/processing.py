@@ -18,6 +18,8 @@ from .constants import (
     BIT_SAMPLES,
     CHUNK_SAMPLES,
     DEFAULT_MAP_ZOOM,
+    DEFAULT_RECEIVER_LATITUDE,
+    DEFAULT_RECEIVER_LONGITUDE,
     PREAMBLE_SAMPLES,
     REQUIRED_SAMPLES,
     SAMPLE_RATE,
@@ -42,8 +44,7 @@ def process_stream(
     refresh_rate: float,
     stale_seconds: float,
     list_size: int,
-    receiver_latitude: float,
-    receiver_longitude: float,
+    receiver_position: tuple[float, float] | None,
     map_source: str,
     map_style: Path,
 ) -> None:
@@ -76,9 +77,17 @@ def process_stream(
     )
     scroll.start()
 
+    if receiver_position is None:
+        map_center = (
+            DEFAULT_RECEIVER_LATITUDE,
+            DEFAULT_RECEIVER_LONGITUDE,
+        )
+    else:
+        map_center = receiver_position
+
     map_view = MapView(
-        latitude=receiver_latitude,
-        longitude=receiver_longitude,
+        latitude=map_center[0],
+        longitude=map_center[1],
         zoom=DEFAULT_MAP_ZOOM,
         height=AdsbTui.MINIMUM_MAP_HEIGHT,
         source=map_source,
@@ -92,6 +101,7 @@ def process_stream(
         list_size=list_size,
         scroll=scroll,
         map_view=map_view,
+        receiver_position=receiver_position,
     )
 
     magnitude_buffer = np.empty(
