@@ -41,10 +41,9 @@ def process_stream(
     noise_time_constant_seconds: float,
     refresh_rate: float,
     stale_seconds: float,
-    page_size: int,
+    list_size: int,
     receiver_latitude: float,
     receiver_longitude: float,
-    map_height: int,
     map_source: str,
     map_style: Path,
 ) -> None:
@@ -70,23 +69,18 @@ def process_stream(
 
     console = Console()
     scroll = ScrollController(
-        map_visible=map_height != 0,
+        map_visible=True,
         gain_names=tuple(
             setting.name for setting in source.gain_settings
         ),
     )
     scroll.start()
 
-    auto_map_height = map_height in (-1, 0)
     map_view = MapView(
         latitude=receiver_latitude,
         longitude=receiver_longitude,
         zoom=DEFAULT_MAP_ZOOM,
-        height=(
-            AdsbTui.MINIMUM_MAP_HEIGHT
-            if auto_map_height
-            else map_height
-        ),
+        height=AdsbTui.MINIMUM_MAP_HEIGHT,
         source=map_source,
         style=map_style,
         auto_fit=True,
@@ -95,10 +89,9 @@ def process_stream(
     tui = AdsbTui(
         console=console,
         stale_seconds=stale_seconds,
-        page_size=page_size,
+        list_size=list_size,
         scroll=scroll,
         map_view=map_view,
-        auto_map_height=auto_map_height,
     )
 
     magnitude_buffer = np.empty(

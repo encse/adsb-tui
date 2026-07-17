@@ -255,7 +255,6 @@ class ScrollController:
 class AdsbTui:
     AIRCRAFT_INACTIVE_SECONDS = 10.0
     AIRCRAFT_PANEL_HEIGHT = 7
-    DEFAULT_MAP_PAGE_SIZE = 2
     HEADER_HEIGHT = 4
     FOOTER_HEIGHT = 1
     MAP_BORDER_HEIGHT = 2
@@ -267,20 +266,15 @@ class AdsbTui:
         self,
         console: Console,
         stale_seconds: float,
-        page_size: int,
+        list_size: int,
         scroll: ScrollController,
         map_view: MapView | None,
-        auto_map_height: bool,
     ) -> None:
         self.console = console
         self.stale_seconds = stale_seconds
-        self.configured_page_size = page_size
+        self.configured_list_size = list_size
         self.scroll = scroll
         self.map_view = map_view
-        self.auto_map_height = auto_map_height
-        self.configured_map_height = (
-            map_view.height if map_view is not None else 0
-        )
 
     @staticmethod
     def marker_center(
@@ -381,20 +375,11 @@ class AdsbTui:
             self.map_view.set_height(map_height)
             return
 
-        if not self.auto_map_height:
-            self.map_view.set_height(self.configured_map_height)
-            return
-
-        aircraft_panels = (
-            self.configured_page_size
-            if self.configured_page_size > 0
-            else self.DEFAULT_MAP_PAGE_SIZE
-        )
         reserved_lines = (
             self.HEADER_HEIGHT
             + self.FOOTER_HEIGHT
             + self.MAP_BORDER_HEIGHT
-            + aircraft_panels * self.AIRCRAFT_PANEL_HEIGHT
+            + self.configured_list_size * self.AIRCRAFT_PANEL_HEIGHT
         )
         map_height = max(
             self.MINIMUM_MAP_HEIGHT,
@@ -403,11 +388,8 @@ class AdsbTui:
         self.map_view.set_height(map_height)
 
     def page_size(self, map_visible: bool) -> int:
-        if self.configured_page_size > 0:
-            return self.configured_page_size
-
         if map_visible:
-            return self.DEFAULT_MAP_PAGE_SIZE
+            return self.configured_list_size
 
         available_lines = max(
             0,
@@ -415,7 +397,6 @@ class AdsbTui:
             - self.HEADER_HEIGHT
             - self.FOOTER_HEIGHT,
         )
-
         return max(
             1,
             available_lines // self.AIRCRAFT_PANEL_HEIGHT,

@@ -42,13 +42,10 @@ def parse_arguments() -> argparse.Namespace:
     )
 
     parser.add_argument(
-        "--page-size",
+        "--list-size",
         type=int,
-        default=0,
-        help=(
-            "Aircraft panels per page; "
-            "0 shows two with the map, or chooses automatically without it"
-        ),
+        default=2,
+        help="Number of aircraft panels shown below the visible map",
     )
 
     parser.add_argument(
@@ -72,16 +69,6 @@ def parse_arguments() -> argparse.Namespace:
         help=(
             "Initial map center longitude "
             f"(default: {DEFAULT_RECEIVER_LONGITUDE})"
-        ),
-    )
-
-    parser.add_argument(
-        "--map-height",
-        type=int,
-        default=-1,
-        help=(
-            "Map content height in terminal rows; "
-            "-1 fills available space, 0 disables it"
         ),
     )
 
@@ -114,14 +101,9 @@ def main() -> None:
             "--stale-seconds must be positive"
         )
 
-    if args.page_size < 0:
+    if args.list_size <= 0:
         raise ValueError(
-            "--page-size must be zero or positive"
-        )
-
-    if args.map_height < -1:
-        raise ValueError(
-            "--map-height must be -1, zero, or positive"
+            "--list-size must be positive"
         )
 
 
@@ -141,10 +123,9 @@ def main() -> None:
                 noise_time_constant_seconds=NOISE_TIME_CONSTANT_SECONDS,
                 refresh_rate=args.refresh_rate,
                 stale_seconds=args.stale_seconds,
-                page_size=args.page_size,
+                list_size=args.list_size,
                 receiver_latitude=args.receiver_lat,
                 receiver_longitude=args.receiver_lon,
-                map_height=args.map_height,
                 map_source=args.map_source,
                 map_style=args.map_style,
             )

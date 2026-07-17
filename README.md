@@ -40,6 +40,10 @@ python3 adsb_tui.py
 At startup, the program tries the supported SoapySDR drivers in order and
 uses the first one that reports a connected device.
 
+The application fills the terminal. Use `--list-size` to choose how many
+aircraft panels are shown below the visible map (the default is 2). When the
+map is hidden, the aircraft list automatically fills the available space.
+
 ## Keyboard controls
 
 - `m`: show or hide the map
